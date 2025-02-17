@@ -417,7 +417,7 @@ def plot_bidding_area_prices(df):
     fig.show()
 
 
-def calculate_CI_nordic(regional_np_df, price_df):
+def calculate_CI_nordic_old(regional_np_df, price_df):
     # Ensure both dataframes have matching datetime indices
     regional_np_df = regional_np_df.copy()
     price_df = price_df.copy()
@@ -511,7 +511,7 @@ def calculate_nordic_congestion_income(CI_df, sharing_key_df):
     return merged_df
 
 
-def compute_flow_for_sharing_key(price_df, flow_df, net_position_df, exclude_list, replace_dict, internal_hvdc, bidding_zone_mapping):
+def compute_flow_for_sharing_key_old(price_df, flow_df, net_position_df, exclude_list, replace_dict, internal_hvdc, bidding_zone_mapping):
     """
     Compute F_i using flow_df and net_position_df, ensuring alignment with price_df.
 
@@ -787,12 +787,12 @@ if __name__ == "__main__":
     shadow_price_df = extract_jao_shadow_prices(jao_df)
     full_net_pos_df = net_position_df.pivot_table(index=net_position_df.index, columns="Bidding Zone", values="Net Position", aggfunc="sum")
     regional_np_df = calculate_regional_net_positions(net_position_df, regional_np_groups, remove_virtual=True)
-    CI_df = calculate_CI_nordic(regional_np_df, price_df)
+    CI_df = calculate_CI_nordic_old(regional_np_df, price_df)
     ac_flow_df = calculate_regional_flow(regional_np_df, border_ptdf_df)
     virtual_ptdf_df = extract_jao_ptdfs(jao_df, border=True, only_virtual=True, include_flow=True)
     virtual_flow_df = virtual_ptdf_df[['cnecName', 'flowFb']]
     full_flow_df = calculate_regional_flow(full_net_pos_df, border_ptdf_df)
-    F_k, F_l = compute_flow_for_sharing_key(price_df, 
+    F_k, F_l = compute_flow_for_sharing_key_old(price_df, 
                                             full_flow_df, 
                                             net_position_df, 
                                             virtual_bidding_zones_non_nordic, 

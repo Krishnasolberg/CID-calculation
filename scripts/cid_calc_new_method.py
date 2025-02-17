@@ -1,9 +1,9 @@
 """
-Vi trenger
-- Nettoposisjoner (JAO)
-- Skyggepris (JAO)
-- PTDFer (JAO)
-- Budområdepriser (Nord Pool)
+We need 
+- Net positions (JAO)
+- Shadowprices (JAO)
+- PTDFs (JAO)
+- Bidding zone prices (Nord Pool)
 """
 
 import requests
@@ -14,17 +14,18 @@ import json
 import pytz
 import xlrd
 import plotly.express as px
+import pandas as pd
+import numpy as np
 
 from bs4 import BeautifulSoup
 from bs4.builder import XMLParsedAsHTMLWarning
 from datetime import datetime, timedelta
 from alive_progress import alive_bar
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 from functools import reduce
 from Nordpool_V2 import Nordpool_API_V2
 from pathlib import Path
+from cid_calc_old_method import compute_flow_for_sharing_key_old, calculate_CI_nordic_old
 
 
 def get_jao_data(start_date:datetime, end_date:datetime, token):
@@ -747,6 +748,22 @@ def calculate_CI_v(SK_v, CI_nordic):
     return SK_v
 
 
+def add_old_ci_to_new_ci(CI_i, CI_per_border_old):
+    CI_i['old_CI'] = 0
+
+    # Iterate through CI_per_border_old and update CI_i
+    for idx, row in CI_per_border_old.iterrows():
+        from_ba = row['from_ba']
+        to_ba = row['to_ba']
+        calculated_value = row['calculated_value']
+        
+        # Check if the row exists in CI_i
+        if not CI_i[(CI_i['from_ba'] == from_ba) & (CI_i['to_ba'] == to_ba) & (CI_i.index == idx)].empty:
+            CI_i.loc[(CI_i['from_ba'] == from_ba) & (CI_i['to_ba'] == to_ba) & (CI_i.index == idx), 'old_CI'] += calculated_value
+
+    return CI_i
+
+
 if __name__ == "__main__":
     bidding_zone_dict = {"FI":"10YFI-1--------U",
                         "NO1":"10YNO-1--------2",
@@ -859,7 +876,18 @@ if __name__ == "__main__":
     SK_v = calculate_SK_v(virtual_ci_component, price_df, net_position_df, ci_total)
     CI_i = calculate_CI_i(SK_i, CI_df)
     CI_v = calculate_CI_v(SK_v, CI_df)
+    f_k_old, f_l_old = compute_flow_for_sharing_key_old(price_df, 
+                                            full_flow_df, 
+                                            net_position_df, 
+                                            virtual_bidding_zones_non_nordic, 
+                                            bidding_area_names, 
+                                            internal_hvdc,
+                                            internal_hvdc_to_border)
+    CI_old = calculate_CI_nordic_old(regional_np_df, price_df)
+    F_i, F_k_old = compute_summed_flow_for_sharing_key(F_k, F_l)
+    sharing_key_old = compute_sharing_key(F_i, F_k)
+    CI_per_border_old = calculate_ci_per_border(CI_old, sharing_key_old)
+    CI_i = add_old_ci_to_new_ci(CI_i, CI_v, CI_per_border_old)
+
     CI_i.to_csv('congestion_income_internal.csv')
     CI_v.to_csv('congestion_income_external.csv')
-    #F_i, F_k = compute_summed_flow_for_sharing_key(F_k, F_l)
-    breakpoint
