@@ -1,0 +1,18 @@
+---
+
+include:
+  - project: pipelines/linting
+    ref: v0
+    file: lint.yml
+  - project: 'pipelines/python-build'
+    ref: 1.9.0
+    file: 'python-project.yml'
+
+variables:
+  PKG_NAME: "congestion_income_distribution_calculation"
+  PROJECT_NAME: "congestion-income-distribution-calculation"
+  PACKAGE_MANAGER: "poetry"
+  PYTHON_VERSIONS: "/(3.12)/"
+  PYTHON_PUBLISH_VERSION: "3.12"
+  RUFF_LINT_ENABLED: "true"
+  FILE_LINT_ENABLED: "true"
