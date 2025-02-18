@@ -6,15 +6,6 @@ authors = ["Krishna Solberg <krishna.solberg@statnett.no>"]
 repository = "https://gitlab.statnett.no/market-design/congestion-income-distribution-calculation.git"
 version = "0.0.0"
 
-[[tool.poetry.source]]
-name = "artifactory"
-url = "https://artifactory.statnett.no/artifactory/api/pypi/pypi_statnett_virtual/simple/"
-priority = "primary"
-
-[[tool.poetry.source]]
-name = "mesa-artifactory"
-url = "https://artifactory.statnett.no/artifactory/api/pypi/mesa-pypi-local/simple/"
-priority = "supplemental"
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.13"
