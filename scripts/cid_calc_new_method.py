@@ -6,6 +6,10 @@ We need
 - Bidding zone prices (Nord Pool)
 """
 
+
+#TODO: sjekk om lambda er lik for alle budområder og skriv ut om ikke (rund opp til 0.05)
+#TODO: 
+
 import requests
 import pandas as pd
 import warnings
@@ -124,8 +128,8 @@ def extract_jao_net_position(df):
     filtered_df['cnecName'] = filtered_df['cnecName'].str.replace("NetPosition_", "", regex=False)
     filtered_df.rename(columns={'cnecName': 'Bidding Zone', 'flowFb': 'Net Position'}, inplace=True)
     filtered_df['dateTimeUtc'] = pd.to_datetime(filtered_df['dateTimeUtc'])
+    filtered_df = filtered_df.drop_duplicates(subset=['dateTimeUtc', 'Bidding Zone'])
     filtered_df.set_index('dateTimeUtc', inplace=True)
-
     return filtered_df
 
 
@@ -146,9 +150,9 @@ def extract_jao_ptdfs(df, border=False, remove_virtual=False, only_virtual=False
 
     # Select the columns 'dateTimeUtc', 'cnecName', and the last 31 columns
     if include_flow == True:
-        columns_to_select = ['dateTimeUtc', 'cnecName', 'fall', 'flowFb', 'shadowPrice'] + df.columns[-31:].tolist()
+        columns_to_select = ['dateTimeUtc', 'cnecName', 'fall', 'flowFb', 'shadowPrice', 'biddingZoneFrom', 'biddingZoneTo'] + df.columns[-31:].tolist()
     else:
-        columns_to_select = ['dateTimeUtc', 'cnecName', 'fall', 'shadowPrice'] + df.columns[-31:].tolist()
+        columns_to_select = ['dateTimeUtc', 'cnecName', 'fall', 'shadowPrice', 'biddingZoneFrom', 'biddingZoneTo'] + df.columns[-31:].tolist()
     filtered_df = df[columns_to_select].copy()
     if border==True:
         filtered_df = filtered_df[filtered_df['cnecName'].str.contains('Border_CNEC', na=False)]
@@ -232,11 +236,28 @@ def plot_bidding_area_prices(df):
 """
 
 def calculate_CI_virtual_component(price_df, ptdf_df):
+    all_hours = ptdf_df.index.unique().sort_values()
     no1_prices = price_df[price_df['deliveryArea'] == 'NO1']
     no1_prices = no1_prices.groupby(no1_prices.index)['price'].first()
+    dk1_prices = price_df[price_df['deliveryArea'] == 'DK1']
+    dk1_prices = dk1_prices.groupby(dk1_prices.index)['price'].first()
     ptdf_df_filtered = ptdf_df[ptdf_df['shadowPrice'] > 0]
 
-    exclude_patterns = ['_EXP', 'AC_Minimum', 'AC_Maximum']
+    exclude_patterns = ['AC_Minimum', 'AC_Maximum']
+    ptdf_df_filtered = ptdf_df_filtered[
+        ~ptdf_df_filtered['biddingZoneTo'].str.contains('_', na=False) &
+        ~ptdf_df_filtered['biddingZoneFrom'].str.contains('_', na=False)
+    ]
+    subset_cols = ptdf_df_filtered.columns[5:36]
+    subset = ptdf_df_filtered[subset_cols]
+
+    non_zero_counts = (subset != 0).sum(axis=1)
+
+    single_non_zero_value = subset.apply(lambda row: row[row != 0].iloc[0] if (row != 0).sum() == 1 else np.nan, axis=1)
+    rows_to_exclude = (non_zero_counts == 1) & single_non_zero_value.isin([1.0, -1.0])
+    ptdf_df_filtered = ptdf_df_filtered[~rows_to_exclude]
+    ptdf_df_filtered = ptdf_df_filtered.drop_duplicates(keep='first')
+
     for pattern in exclude_patterns:
         ptdf_df_filtered = ptdf_df_filtered[
             ~ptdf_df_filtered['cnecName'].str.contains(pattern, na=False)
@@ -244,26 +265,43 @@ def calculate_CI_virtual_component(price_df, ptdf_df):
 
     relevant_columns = [col for col in ptdf_df.columns if '_' in col]
 
-    lambda_values = (
+    empty_row = {col: 0 for col in relevant_columns + ['shadowPrice', 'NO1', 'DK1']}
+    empty_row.update({'biddingZoneTo': '', 'biddingZoneFrom': '', 'cnecName': ''})
+    missing_hours = all_hours.difference(ptdf_df_filtered.index.unique())
+    if not missing_hours.empty:
+        filler_df = pd.DataFrame([empty_row] * len(missing_hours), index=missing_hours)
+        ptdf_df_filtered = pd.concat([ptdf_df_filtered, filler_df]).sort_index()
+
+    nordic_lambda_values = (
         ptdf_df_filtered.groupby(ptdf_df_filtered.index)
         .apply(lambda group: (group['NO1'] * group['shadowPrice']).sum())
     )
 
-    ptdf_df['lambda'] = ptdf_df.index.map(no1_prices) + ptdf_df.index.map(lambda_values)
+    dk1_lambda_values = (
+        ptdf_df_filtered.groupby(ptdf_df_filtered.index)
+        .apply(lambda group: (group['DK1'] * group['shadowPrice']).sum())
+    )
+
+    ptdf_df['nordic_lambda'] = ptdf_df.index.map(no1_prices) + ptdf_df.index.map(nordic_lambda_values)
+    ptdf_df['dk1_lambda'] = ptdf_df.index.map(dk1_prices) + ptdf_df.index.map(dk1_lambda_values)
 
     virtual_prices = pd.DataFrame(index=ptdf_df.index.unique(), columns=relevant_columns)
 
     for col in relevant_columns:
-        summed_values = (
-            ptdf_df_filtered.groupby(ptdf_df_filtered.index)
-            .apply(lambda group: (group[col] * group['shadowPrice']).sum())
-        )
-
-        virtual_prices[col] = ptdf_df['lambda'].groupby(ptdf_df.index).first() - summed_values
+        if 'DK1' in col:
+            summed_values = (
+                ptdf_df_filtered.groupby(ptdf_df_filtered.index)
+                .apply(lambda group: (group[col] * group['shadowPrice']).sum())
+            )
+            virtual_prices[col] = ptdf_df['dk1_lambda'].groupby(ptdf_df.index).first() - summed_values
+        else:
+            summed_values = (
+                ptdf_df_filtered.groupby(ptdf_df_filtered.index)
+                .apply(lambda group: (group[col] * group['shadowPrice']).sum())
+            )
+            virtual_prices[col] = ptdf_df['nordic_lambda'].groupby(ptdf_df.index).first() - summed_values
 
     return virtual_prices
-
-
 
 
 def calculate_CI_nordic_regional(regional_np_df, price_df):
@@ -357,7 +395,7 @@ def calculate_regional_flow(regional_np_df, border_ptdf_df):
     result_df.insert(0, 'cnecName', cnec_name_column.values)
     result_df.insert(1, 'fall', f0_column.values)
     result_df['Flow'] = result_df.iloc[:, 1:].sum(axis=1)
-    result_df['Flow_ex_f0'] = result_df["Flow"] - result_df['fall']
+    result_df['Flow'] = result_df["Flow"] - result_df['fall']
     
     return result_df
 
@@ -837,8 +875,8 @@ if __name__ == "__main__":
     entsoe_token = "788640ef-a0e0-4b55-b20f-aaf4b17ebe43"
     jao_token = "5080c637-d372-494e-87b4-8b706d132ecc"
 
-    start_date = datetime(2024, 12, 31, 22, 0)
-    end_date = datetime(2025, 1, 1, 22, 0)
+    start_date = datetime(2025, 4, 30, 22, 0)
+    end_date = datetime(2025, 6, 1, 22, 0)
 
     """
     Day ahead prices
@@ -887,7 +925,7 @@ if __name__ == "__main__":
     F_i, F_k_old = compute_summed_flow_for_sharing_key(F_k, F_l)
     sharing_key_old = compute_sharing_key(F_i, F_k)
     CI_per_border_old = calculate_ci_per_border(CI_old, sharing_key_old)
-    CI_i = add_old_ci_to_new_ci(CI_i, CI_v, CI_per_border_old)
+    CI_i = add_old_ci_to_new_ci(CI_i, CI_per_border_old)
 
-    CI_i.to_csv('congestion_income_internal.csv')
-    CI_v.to_csv('congestion_income_external.csv')
+    CI_i.to_csv('congestion_income_internal_2024_with_old.csv', sep=',')
+    CI_v.to_csv('congestion_income_external_2024_with_old.csv', sep=',')

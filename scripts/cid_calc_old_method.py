@@ -496,7 +496,7 @@ def calculate_regional_flow(regional_np_df, border_ptdf_df):
     
     # Sum all columns except 'cnecName' for each row and store in a new column 'Flow'
     result_df['Flow'] = result_df.iloc[:, 1:].sum(axis=1)
-    result_df['Flow_ex_f0'] = result_df["Flow"] - result_df['fall']
+    result_df['Flow'] = result_df["Flow"] - result_df['fall']
     
     return result_df
 
